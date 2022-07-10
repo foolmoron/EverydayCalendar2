@@ -8,15 +8,37 @@
 #define ARRAY_SIZE(array) (sizeof((array))/sizeof((array[0])))
 #define EEPROM_START_ADR  0x00000000
 
+static const int BRIGHTNESS_INITIAL_X10 = 2180; // x10 is to give us room to animate more smoothly without using floats
+static const int BRIGHTNESS_DARKEST_X10 = 2400;
+static const int BRIGHTNESS_LIGHTEST_X10 = 600;
+static const int BRIGHTNESS_SPEED = 20;
+static const int BRIGHTNESS_DELAY_DIST_TICKS = 40;
+
 static const int csPin = 10;
 static const int tickle_pin = 9;
 static const int outputEnablePin = 8;
 // set up the speed, data order and data mode
 static SPISettings spiSettings(4000000, MSBFIRST, SPI_MODE0);
-static const uint8_t maxBrightness = 255;
-static uint8_t brightness = maxBrightness/2;
 static uint32_t ledValues[12] = {0}; // Months are the integers in range [0,11], Days are bits within the integers, in range [0,31]
+static bool loaded = false;
 
+enum AnimState {
+  Still = 0, // rest state at medium bright
+  Delayed = 1, // waiting a number of ticks
+  Brightening = 2, // go up to max bright
+  Dimming = 3, // go down to min bright
+  Resetting = 4, // go back up to initial bright
+}; 
+
+struct BrightnessRecord {
+  int brightnessX10 = 0;
+  int delayTicks = 0;
+  AnimState state = Still;
+};
+static BrightnessRecord brights[12];
+static int animMonth = 0;
+
+static const int BRIGHT_SHIFT_TICKS = 1;
 
 void EverydayCalendar_lights::configure(){
   // LED configurations
@@ -32,7 +54,7 @@ void EverydayCalendar_lights::configure(){
   TCCR2A = (TCCR2A & ~0x03) | 0x00;
   TCCR2B = (TCCR2B & ~0x08) | 0x00;
   TCCR2B = (TCCR2B & ~0x07) | 0x02; // selects a clock prescaler of 8. That's a frequency of 31372.55
-  OCR2A = brightness; //128
+  OCR2A = BRIGHTNESS_INITIAL_X10 / 10;
   clearAllLEDs();
 }
 
@@ -53,6 +75,18 @@ void EverydayCalendar_lights::setLED(uint8_t month, uint8_t day, bool enable){
 
   if (enable){
       ledValues[month] = ledValues[month] | ((uint32_t)1 << day);
+
+    if (loaded) {
+      // Run animation for this month
+      animMonth = month;
+      for (size_t i = 0; i < 12; i++)
+      {
+        int dist = abs((int)month - (int)i);
+        brights[i].brightnessX10 = dist == 0 ? BRIGHTNESS_LIGHTEST_X10 : BRIGHTNESS_INITIAL_X10;
+        brights[i].delayTicks = dist * BRIGHTNESS_DELAY_DIST_TICKS;
+        brights[i].state = dist == 0 ? Brightening : Delayed;
+      }
+    }
   }else{
       ledValues[month] = ledValues[month] & ~((uint32_t)1 << day);
   }
@@ -92,18 +126,14 @@ void EverydayCalendar_lights::loadLedStatesFromMemory(){
     Serial.print(" = ");
     Serial.println(ledValues[i]);
   }
+
+  loaded = true;
 }
 
 void EverydayCalendar_lights::setBrightness(uint8_t b){
-  if(b > 200){
-    b = 200;
-  }
-  b = ~b;
-  if((brightness == 255) && (b != 255)){
+  if(b > 0){
     TIMSK2 |= (1<<OCIE2A);
-  }
-  brightness = b;
-  if(brightness == 255){
+  } else {
     TIMSK2 &= ~(1<<OCIE2A);
   }
 }
@@ -118,10 +148,60 @@ ISR(TIMER2_COMPA_vect) {
 ISR(TIMER2_OVF_vect) {
     static uint16_t activeColumn = 0;
     static byte spiBuf[6];
+    size_t c = activeColumn;
 
     digitalWrite(outputEnablePin, HIGH); // Disable
 
-    OCR2A = brightness;
+
+    // Use initial brightness by default
+    int brightnessX10 = BRIGHTNESS_INITIAL_X10;
+
+    // Otherwise animate wave
+    if (brights[c].state == Delayed) {
+      brights[c].delayTicks--;
+      if (brights[c].delayTicks <= 0) {
+        brights[c].state = Brightening;
+      }
+    } else if (brights[c].state != Still) {
+      
+      // Velocity & reversing
+      int vel = -BRIGHTNESS_SPEED; // negative means going up since higher numbers are brighter
+      if (brights[c].state == Dimming) {
+        vel *= -1;
+      }
+
+      // Slow down darker (higher) velocity so there's balance between light & dark
+      if (brights[c].brightnessX10 > 2100) {
+        vel /= 4;
+      } else if (brights[c].brightnessX10 > 1800) {
+        vel /= 2;
+      }
+      
+      // New brightness
+      int prev = brights[c].brightnessX10;
+      brights[c].brightnessX10 += vel;
+
+      // Change states
+      if (brights[c].state == Brightening && brights[c].brightnessX10 < BRIGHTNESS_LIGHTEST_X10) {
+        brights[c].state = Dimming;
+      } else if (brights[c].state == Dimming && brights[c].brightnessX10 > BRIGHTNESS_DARKEST_X10) {
+        brights[c].state = Resetting;
+      } else if (brights[c].state == Resetting && brights[c].brightnessX10 <= BRIGHTNESS_INITIAL_X10) {
+        brights[c].state = Still;
+      }
+      
+      // Use anim brightness
+      brightnessX10 = brights[c].brightnessX10;
+      
+      // Special handling for anim month to always stay bright
+      if (c == animMonth) {
+        if (brights[c].state && brightnessX10 > BRIGHTNESS_INITIAL_X10) {
+          brightnessX10 = BRIGHTNESS_INITIAL_X10;
+        }
+      }
+    }
+
+    OCR2A = brightnessX10 / 10;
 
     // "Tickle" the watchdog circuit to keep the LEDs enabled
     digitalWrite(tickle_pin, !digitalRead(tickle_pin));
@@ -142,6 +222,5 @@ ISR(TIMER2_OVF_vect) {
     SPI.endTransaction();
     digitalWrite (csPin, HIGH);
 
-    activeColumn++;
-    activeColumn %= 12;
+    activeColumn = (activeColumn + 1) % 12;
 }
