@@ -1,3 +1,6 @@
+# foolmoron's Fork
+- Playing around with an animation on touch
+
 # The Every Day Calendar
 
 ![edc](/images/edc.gif)
@@ -34,9 +37,9 @@ To download the firmware and schematic files, run the following command on your 
 ### Installing Arduino Libraries
 
 1. Copy the contents of this repository's *firmware > libraries* directory into your computer's Arduino libraries folder.
-   
+
    - Typically that's located in **Documents/Arduino/libraries**
-   
+
    **Note:** If more instruction is needed, follow Arduino's guide: https://www.arduino.cc/en/guide/libraries
 
 To test and see if the custom libraries are working, you can run our sample code provided in the *firmware > sketches* directory of this Github repository. Simply upload one of the sample code files onto the calendar using the Arduino IDE, open the **Serial Monitor** and set the baud rate to **9600**.

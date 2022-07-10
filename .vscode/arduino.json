@@ -1,0 +1,9 @@
+{
+    "output": "out",
+    "configuration": "cpu=8MHzatmega328",
+    "board": "arduino:avr:pro",
+    "programmer": "arduino:avrispmkii",
+    "port": "COM3",
+    "sketch": "firmware\\sketches\\EverydayCalendar\\EverydayCalendar.ino",
+    "prebuild": "xcopy .\\firmware\\libraries %USERPROFILE%\\Documents\\Arduino\\libraries /E /Y"
+}
