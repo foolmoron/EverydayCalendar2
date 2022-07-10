@@ -44,11 +44,11 @@ void setup() {
 }
 
 void loop() {
-  static Point previouslyHeldButton = {0xFF, 0xFF}; // 0xFF and 0xFF if no button is held
+  static Point previouslyHeldButton = {(char)0xFF, (char)0xFF}; // 0xFF and 0xFF if no button is held
   static uint16_t touchCount = 1;
   static const uint8_t debounceCount = 3;
   static const uint16_t clearCalendarCount = 1300; // ~40 seconds.  This is in units of touch sampling interval ~= 30ms.  
-  Point buttonPressed = {0xFF, 0xFF};
+  Point buttonPressed = {(char)0xFF, (char)0xFF};
   bool touch = cal_touch.scanForTouch();
   // Handle a button press
   if(touch)
@@ -56,9 +56,9 @@ void loop() {
     // Brightness Buttons
     if(cal_touch.y == 31){
       if(cal_touch.x == 4){
-        brightness -= 3;
+        brightness = 0;
       }else if(cal_touch.x == 6){
-        brightness += 2;
+        brightness = 200;
       }
       brightness = constrain(brightness, 0, 200);
       Serial.print("Brightness: ");
