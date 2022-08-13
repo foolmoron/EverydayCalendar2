@@ -40,6 +40,8 @@ static int animMonth = 0;
 
 static const int BRIGHT_SHIFT_TICKS = 1;
 
+static uint32_t overrideOnValues[12] = {0}; // override light to on
+
 void EverydayCalendar_lights::configure(){
   // LED configurations
   SPI.begin();
@@ -64,37 +66,53 @@ void EverydayCalendar_lights::begin(){
 
 void EverydayCalendar_lights::clearAllLEDs(){
   memset(ledValues, 0, sizeof(ledValues));
+  memset(overrideOnValues, 0, sizeof(overrideOnValues));
 }
 
 // Month is in range [0,11]
 // Day is in range [0,30]
-void EverydayCalendar_lights::setLED(uint8_t month, uint8_t day, bool enable){
+void setLEDInternal(uint32_t* values, uint8_t month, uint8_t day, bool enable){
   if (month > 11 || day > 30){
     return;
   }
 
   if (enable){
-      ledValues[month] = ledValues[month] | ((uint32_t)1 << day);
-
-    if (loaded) {
-      // Run animation for this month
-      animMonth = month;
-      for (size_t i = 0; i < 12; i++)
-      {
-        int dist = abs((int)month - (int)i);
-        brights[i].brightnessX10 = dist == 0 ? BRIGHTNESS_LIGHTEST_X10 : BRIGHTNESS_INITIAL_X10;
-        brights[i].delayTicks = dist * BRIGHTNESS_DELAY_DIST_TICKS;
-        brights[i].state = dist == 0 ? Brightening : Delayed;
-      }
-    }
+      values[month] = values[month] | ((uint32_t)1 << day);
   }else{
-      ledValues[month] = ledValues[month] & ~((uint32_t)1 << day);
+      values[month] = values[month] & ~((uint32_t)1 << day);
   }
 }
 
-void EverydayCalendar_lights::toggleLED(uint8_t month, uint8_t day){
-   bool ledState = (*(ledValues+month) & ((uint32_t)1 << (day)));
-   setLED(month, day, !ledState);
+void EverydayCalendar_lights::setLED(uint8_t month, uint8_t day, bool enable){
+  setLEDInternal(ledValues, month, day, enable);
+}
+
+bool EverydayCalendar_lights::toggleLED(uint8_t month, uint8_t day){
+  bool ledState = (*(ledValues+month) & ((uint32_t)1 << (day)));
+  bool newState = !ledState;
+  setLED(month, day, newState);
+
+  // Run animation for this month
+  if (loaded && newState) {
+    animMonth = month;
+    for (size_t i = 0; i < 12; i++)
+    {
+      int dist = abs((int)month - (int)i);
+      brights[i].brightnessX10 = dist == 0 ? BRIGHTNESS_LIGHTEST_X10 : BRIGHTNESS_INITIAL_X10;
+      brights[i].delayTicks = dist * BRIGHTNESS_DELAY_DIST_TICKS;
+      brights[i].state = dist == 0 ? Brightening : Delayed;
+    }
+  }
+
+  return newState;
+}
+
+void EverydayCalendar_lights::setOverrideLED(uint8_t month, uint8_t day, bool enable){
+  setLEDInternal(overrideOnValues, month, day, enable);
+}
+
+void EverydayCalendar_lights::clearOverrideLEDs(){
+  memset(overrideOnValues, 0, sizeof(overrideOnValues));
 }
 
 void EverydayCalendar_lights::saveLedStatesToMemory(){
@@ -209,15 +227,16 @@ ISR(TIMER2_OVF_vect) {
     // update the next column
     uint16_t month = (1 << activeColumn);
     uint8_t * pDays = (uint8_t*) (ledValues + activeColumn);
+    uint8_t * overrideOnDays = (uint8_t*) (overrideOnValues + activeColumn);
 
     // Send the LED control values into the shift registers
     digitalWrite (csPin, LOW);
     SPI.beginTransaction(spiSettings);
     memcpy(spiBuf, &month, 2);
-    spiBuf[2] = pDays[3];
-    spiBuf[3] = pDays[2];
-    spiBuf[4] = pDays[1];
-    spiBuf[5] = pDays[0];
+    spiBuf[2] = pDays[3] | overrideOnDays[3];
+    spiBuf[3] = pDays[2] | overrideOnDays[2];
+    spiBuf[4] = pDays[1] | overrideOnDays[1];
+    spiBuf[5] = pDays[0] | overrideOnDays[0];
     SPI.transfer(spiBuf, sizeof(spiBuf));
     SPI.endTransaction();
     digitalWrite (csPin, HIGH);

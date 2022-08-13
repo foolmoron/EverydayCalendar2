@@ -10,9 +10,78 @@ EverydayCalendar_touch cal_touch;
 EverydayCalendar_lights cal_lights;
 int16_t brightness = 128;
 
+
+typedef struct {
+  Point p;
+  // Max means this burst is deactivated and the struct
+  // can be reused. Set it to 0 to activate the burst.
+  uint16_t tick = UINT16_MAX;
+} Burst;
+const size_t BURST_COUNT = 8;
+Burst bursts[BURST_COUNT];
+
+typedef struct {
+  Point offset;
+  uint16_t tickStart;
+  uint16_t tickEnd;
+} AnimPattern;
+const AnimPattern ANIM[] = {
+  // 1st ring
+  {{ -1,  0},   0,  3},
+  {{  1,  0},   0,  3},
+  {{  0, -1},   1,  3},
+  {{  0,  1},   1,  3},
+
+  // 2nd ring
+  {{  1, -1},   2,  6},
+  {{  1,  1},   2,  6},
+  {{ -1, -1},   2,  6},
+  {{ -1,  1},   2,  6},
+  {{  0, -2},   2,  5},
+  {{  0,  2},   2,  5},
+  {{ -2,  0},   5,  36 }, // these lingering are #s between 24-46, spaced 2 apart, shuffled randomly
+  {{  2,  0},   5,  32 },
+
+  // 3rd ring
+  {{ -2, -1},   7,  34 },
+  {{ -2,  1},   7,  24 },
+  {{  2, -1},   7,  44 },
+  {{  2,  1},   7,  42 },
+  {{ -1, -2},   6,  26 },
+  {{ -1,  2},   6,  46 },
+  {{  1, -2},   6,  28 },
+  {{  1,  2},   6,  38 },
+  {{  0, -3},   4,  40 },
+  {{  0,  3},   4,  30 },
+};
+const size_t ANIM_COUNT = sizeof(ANIM)/sizeof(ANIM[0]);
+
+uint16_t ANIM_MAX_TICK = 0;
+
+
+void doBurst(Point p) {
+  for (size_t i = 0; i < BURST_COUNT; i++)
+  {
+    Burst* burst = &bursts[i];
+    if (burst->tick == UINT16_MAX) {
+      burst->p = p;
+      burst->tick = 0;
+      return;
+    }
+  }
+}
+
 void setup() {
   Serial.begin(9600);
   Serial.println("Sketch setup started");
+
+  // Init data
+  for (size_t a = 0; a < ANIM_COUNT; a++)
+  {
+    if (ANIM[a].tickEnd > ANIM_MAX_TICK) {
+      ANIM_MAX_TICK = ANIM[a].tickEnd;
+    }
+  }
   
   // Initialize LED functionality
   cal_lights.configure();
@@ -78,12 +147,17 @@ void loop() {
       // This is called debouncing
       if (touchCount == debounceCount){
         // Button is activated
-        cal_lights.toggleLED((uint8_t)cal_touch.x, (uint8_t)cal_touch.y);
+        bool on = cal_lights.toggleLED((uint8_t)cal_touch.x, (uint8_t)cal_touch.y);
         cal_lights.saveLedStatesToMemory();
         Serial.print("x: ");
         Serial.print(cal_touch.x);
         Serial.print("\ty: ");
         Serial.println(cal_touch.y);
+
+        // Burst if toggled on
+        if (on) {
+          doBurst({cal_touch.x, cal_touch.y});
+        }
       }
 
       // Check if the special "Reset" January 1 button is being held
@@ -101,6 +175,39 @@ void loop() {
 
   previouslyHeldButton.x = cal_touch.x;
   previouslyHeldButton.y = cal_touch.y;
+
+  // Bursts
+  bool needsClearing = true;
+  for (size_t i = 0; i < BURST_COUNT; i++)
+  {
+    // increment tick for active bursts
+    Burst* burst = &bursts[i];
+    if (burst->tick == UINT16_MAX) {
+      continue;
+    }
+    burst->tick++;
+    
+    // clear previous overrides if necessary
+    if (needsClearing) {
+      cal_lights.clearOverrideLEDs();
+      needsClearing = false;
+    }
+
+    // end burst when at max tick
+    if (burst->tick >= ANIM_MAX_TICK) {
+      burst->tick = UINT16_MAX;
+      continue;
+    }
+
+    // enable the overrides for this tick
+    for (size_t a = 0; a < ANIM_COUNT; a++) {
+      const AnimPattern* anim = &ANIM[a];
+      if (burst->tick < anim->tickStart || burst->tick >= anim->tickEnd) {
+        continue;
+      }
+      cal_lights.setOverrideLED(burst->p.x + anim->offset.x, burst->p.y + anim->offset.y, true);
+    }
+  }
 }
 
 void honeyDrip(){

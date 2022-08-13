@@ -12,10 +12,12 @@ public:
 	void saveLedStatesToMemory();
 
 	void setLED(uint8_t month, uint8_t day, bool enable);
-	void toggleLED(uint8_t month, uint8_t day);
+	bool toggleLED(uint8_t month, uint8_t day);
 	void clearAllLEDs();
 	void setBrightness(uint8_t brightness);
 
+	void setOverrideLED(uint8_t month, uint8_t day, bool enable);
+	void EverydayCalendar_lights::clearOverrideLEDs();
 };
 
 #endif

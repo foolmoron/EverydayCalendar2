@@ -1,5 +1,9 @@
 # foolmoron's Fork
-- Playing around with an animation on touch
+Changes:
+- VSCode setup - all you need is the Arduino extension, and do `Arduino: Upload`. The libraries will be copied automatically.
+- Simplified brightness button - pressing darken/brigthen will fully turn off/on the lights with one tap.
+- Light wave effect when turning on a light - animates a wave of brightness across the columns.
+- Starburst effect when turning on a light -  animates lights around the one you touched, like fireworks.
 
 # The Every Day Calendar
 
